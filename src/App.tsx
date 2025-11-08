@@ -1,23 +1,44 @@
 import React, { useState, useEffect } from 'react';
+
+// --- MOCK LOGO ---
+// In a real app, you would import this: import MediqloLogo from "./assets/mediqlo-logo.png";
 import MediqloLogo from "./assets/mediqlo-logo.png";
 
-// --- Type Definitions ---
 
+// --- CONSTANTS ---
+// UPDATED: This now matches the feature schema from your backend code.
+const FEATURES = [
+  { key: 'appointments', label: 'Appointments' },
+  { key: 'patientManagement', label: 'Patient Mgt.' },
+  { key: 'doctorManagement', label: 'Doctor Mgt.' },
+  { key: 'departmentManagement', label: 'Dept. Mgt.' },
+  // { key: 'billing', label: 'Billing' },
+  // { key: 'reporting', label: 'Reporting' },
+];
+
+
+// --- TYPE DEFINITIONS ---
+
+// UPDATED: Interface for the features object to match the backend model.
+interface HospitalFeatures {
+  appointments: boolean;
+  patientManagement: boolean;
+  doctorManagement: boolean;
+  departmentManagement: boolean;
+  billing: boolean;
+  reporting: boolean;
+  [key: string]: boolean; // Index signature for dynamic access
+}
+
+// UPDATED: Hospital interface now includes the detailed 'features' object.
 interface Hospital {
   _id: string;
-  hospitalName: string;
+  hospitalCode: string;
+  name: string;
+  isActive: boolean;
+  features: HospitalFeatures;
   createdAt: string;
-  hospitalDetails: {
-    numberOfBeds: number;
-  };
-  contact: {
-    personName: string;
-    email: string;
-  };
-  address: {
-    city: string;
-    state: string;
-  };
+  updatedAt: string;
 }
 
 interface LoginScreenProps {
@@ -29,7 +50,8 @@ interface HospitalDashboardProps {
   setToken: React.Dispatch<React.SetStateAction<string | null>>;
 }
 
-// --- Login Screen Component ---
+
+// --- LOGIN SCREEN COMPONENT ---
 const LoginScreen: React.FC<LoginScreenProps> = ({ setToken }) => {
   const [email, setEmail] = useState<string>('');
   const [password, setPassword] = useState<string>('');
@@ -75,14 +97,11 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ setToken }) => {
     <div className="flex items-center justify-center min-h-screen bg-gray-50">
       <div className="w-full max-w-md p-8 space-y-8 bg-white shadow-lg rounded-2xl">
         <div className="text-center">
-
-          <img src={MediqloLogo} alt="Mediqlo Logo" className="h-10 w-auto m-auto" />
-
-          <h2 className="text-2xl font-bold text-gray-900">Super Admin Login</h2>
-        
+          <img src={MediqloLogo} alt="Mediqlo Logo" className="w-auto h-10 m-auto" />
+          <h2 className="mt-4 text-2xl font-bold text-gray-900">Super Admin Login</h2>
         </div>
         <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
-          {error && <div className="p-3 text-center text-sm text-red-800 bg-red-100 rounded-lg">{error}</div>}
+          {error && <div className="p-3 text-sm text-center text-red-800 bg-red-100 rounded-lg">{error}</div>}
           <div className="space-y-4 rounded-md shadow-sm">
             <div>
               <label htmlFor="email-address" className="sr-only">Email address</label>
@@ -104,7 +123,8 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ setToken }) => {
   );
 };
 
-// --- Hospital Dashboard Component ---
+
+// --- HOSPITAL DASHBOARD COMPONENT ---
 const HospitalDashboard: React.FC<HospitalDashboardProps> = ({ token, setToken }) => {
   const [hospitals, setHospitals] = useState<Hospital[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
@@ -115,50 +135,81 @@ const HospitalDashboard: React.FC<HospitalDashboardProps> = ({ token, setToken }
     setToken(null);
   };
 
+  const handleFeatureToggle = async (hospitalId: string, featureKey: string, isEnabled: boolean) => {
+    const originalHospitals = [...hospitals];
+
+    // Optimistically update UI
+    setHospitals(currentHospitals =>
+      currentHospitals.map(hospital =>
+        hospital._id === hospitalId
+          ? { ...hospital, features: { ...hospital.features, [featureKey]: isEnabled } }
+          : hospital
+      )
+    );
+
+    try {
+      // This API endpoint matches the one defined in your backend routes
+      const apiUrl = `${import.meta.env.API_URL || 'http://localhost:5000'}/api/hospitals/${hospitalId}/features`;
+
+      const response = await fetch(apiUrl, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          features: { [featureKey]: isEnabled }
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to update feature.');
+      }
+
+      // Optional: You can refresh the specific hospital data from the response
+      const updatedData = await response.json();
+      setHospitals(current => current.map(h => h._id === hospitalId ? updatedData.data.hospital : h));
+
+
+    } catch (err) {
+      console.error("Failed to toggle feature:", err);
+      alert('Could not update feature settings. Reverting change.');
+      setHospitals(originalHospitals); // Revert on failure
+    }
+  };
+
   useEffect(() => {
     const apiUrl = `${import.meta.env.API_URL || 'http://localhost:5000'}/api/hospitals`;
-
     const fetchHospitals = async () => {
+      setLoading(true);
       try {
         const response = await fetch(apiUrl, {
-          headers: {
-            'Authorization': `Bearer ${token}`
-          }
+          headers: { 'Authorization': `Bearer ${token}` }
         });
-
         if (response.status === 401) {
-          handleLogout(); // Token is invalid or expired
+          handleLogout();
           return;
         }
-
-        if (!response.ok) {
-          throw new Error('Could not fetch hospital data.');
-        }
-
+        if (!response.ok) throw new Error('Could not fetch hospital data.');
         const data = await response.json();
         setHospitals(data.data.hospitals);
-
       } catch (err) {
-        if (err instanceof Error) {
-          setError(err.message);
-        } else {
-          setError('An unexpected error occurred while fetching data.');
-        }
+        setError(err instanceof Error ? err.message : 'An unexpected error occurred.');
       } finally {
         setLoading(false);
       }
     };
-
-    fetchHospitals();
+    if (token) {
+      fetchHospitals();
+    }
   }, [token]);
-
 
   return (
     <div className="min-h-screen bg-gray-50 font-sans">
       <header className="bg-white shadow-sm">
         <div className="flex items-center justify-between max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <div className="flex items-center space-x-3">
-                <img src={MediqloLogo} alt="Mediqlo Logo" className="h-10 w-auto" />
+            <img src={MediqloLogo} alt="Mediqlo Logo" className="h-10 w-auto" />
             <h1 className="text-xl font-bold text-gray-800">Super Admin Dashboard</h1>
           </div>
           <button onClick={handleLogout} className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
@@ -176,28 +227,42 @@ const HospitalDashboard: React.FC<HospitalDashboardProps> = ({ token, setToken }
               <thead className="bg-gray-50">
                 <tr>
                   <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Hospital Name</th>
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Admin Contact</th>
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Location</th>
                   <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date Registered</th>
+                  {/* Dynamically generate a header for each feature */}
+                  {FEATURES.map(feature => (
+                    <th key={feature.key} scope="col" className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      {feature.label}
+                    </th>
+                  ))}
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
                 {hospitals.map((hospital) => (
                   <tr key={hospital._id}>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm font-medium text-gray-900">{hospital.hospitalName}</div>
-                      {/* <div className="text-sm text-gray-500">{hospital.hospitalDetails.numberOfBeds} Beds</div> */}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm text-gray-900">{hospital.contact.personName}</div>
-                      <div className="text-sm text-gray-500">{hospital.contact.email}</div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {hospital.address.city}, {hospital.address.state}
+                      <div className="text-sm font-medium text-gray-900">{hospital.name}</div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                       {new Date(hospital.createdAt).toLocaleDateString()}
                     </td>
+                    {/* Dynamically generate a toggle switch for each feature */}
+                    {FEATURES.map(feature => (
+                      <td key={feature.key} className="px-4 py-4 whitespace-nowrap text-center">
+                        <label htmlFor={`${hospital._id}-${feature.key}`} className="flex items-center justify-center cursor-pointer">
+                          <div className="relative">
+                            <input
+                              type="checkbox"
+                              id={`${hospital._id}-${feature.key}`}
+                              className="sr-only peer"
+                              checked={hospital.features?.[feature.key] || false}
+                              onChange={(e) => handleFeatureToggle(hospital._id, feature.key, e.target.checked)}
+                            />
+                            <div className="block bg-gray-200 w-10 h-6 rounded-full peer-checked:bg-blue-600 transition"></div>
+                            <div className="dot absolute left-1 top-1 bg-white w-4 h-4 rounded-full transition peer-checked:translate-x-full"></div>
+                          </div>
+                        </label>
+                      </td>
+                    ))}
                   </tr>
                 ))}
               </tbody>
@@ -210,7 +275,7 @@ const HospitalDashboard: React.FC<HospitalDashboardProps> = ({ token, setToken }
 };
 
 
-// --- Main App Component ---
+// --- MAIN APP COMPONENT ---
 export default function App() {
   const [token, setToken] = useState<string | null>(localStorage.getItem('superAdminToken'));
 
